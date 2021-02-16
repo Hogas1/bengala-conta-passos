@@ -12,8 +12,8 @@ const char* password = "ruinamaple";
 #define mqtt_senha "0b34603e-9ce3-4e4a-8c79-d02d08c3d02a"
 #define mqtt_topico_pub "bengala"
 
-#define MQTT_KEEPALIVE 65365 //Tempo em que a conexão será mantida em segundos
-#define MQTT_SOCKET_TIMEOUT 65365
+#define MQTT_KEEPALIVE 600 //Tempo em que a conexão será mantida em segundos
+#define MQTT_SOCKET_TIMEOUT 65365 // Tempo de conexão em um socket
 #define pinoSensor A0 //PINO DIGITAL UTILIZADO PELO SENSOR
 #define led D4 //Pino do led embutido na placa
 
@@ -42,18 +42,23 @@ void setup(){
 
   //Conecta ao broker MQTT
   client.setServer(mqtt_server,1883); 
-  client.connect(mqtt_usuario,mqtt_usuario,mqtt_senha);
+  client.connect(mqtt_usuario,mqtt_usuario,mqtt_senha,"Entrada",0,0,"0");
   client.setKeepAlive(MQTT_KEEPALIVE);
   client.setSocketTimeout(MQTT_SOCKET_TIMEOUT);
 }
 
 void loop(){
+  //Checa se esta conectado ao broker e se há dado novo para ser enviado
+  if(!client.connected() && enviou==false){reconnect();} 
+  
+  //Checa conexão WiFi
+  if(WiFi.status() != WL_CONNECTED) {conecta_wifi();}
+
+  
  //Verifica quando um passo é dado e chama função para contagem de passos
   if((analogRead(pinoSensor))>=85) {
     cont_passos();
-  }  
-  parado();//Chama função que verifica se está andando/parado
-  
+  }    
   client.loop(); //Isso deve ser chamado regularmente para permitir que o cliente 
                  //processe as mensagens recebidas e mantenha sua conexão com o servidor.
 }
@@ -74,16 +79,6 @@ void cont_passos(){ //Conta o número de passos
   enviou = false;
 }
 
-//Verifica se está andando, caso não esteja é refeita a conexão com o broker e enviado o número de passos dados
-void parado(){
-  //É indicado que o usuário está parado quando está a mais de 4s sem dar um passo.
-  //É enviado a contagem de passos quando o usário está parado e é completa o número de repetições da função loop reservadas à verificação de passos.  
-  if(((millis() - tempo_ultimo_passo)>=4000) && enviou==false) { 
-    andar=false; //Usuário parado
-    enviar();
-    contador=0;
-  }
-}
 
 //Conecta com o WiFi
 void conecta_wifi() {
@@ -96,7 +91,7 @@ void conecta_wifi() {
     }
 }
 
-//Envia o número de passos ao broker MQTT
+//Prepara o payload para enviar o número de passos ao broker MQTT
 void enviar(){
   //Criar mensagem no formado JSON definido no TagoIO  
   char* str1 = strdup("{\n \"variable\" : \"Passos\",\n \"value\" : ");
@@ -105,29 +100,18 @@ void enviar(){
   strcat(str1,str2);
   strcat(str1,str3);
   num_passos = str1;
-
-  while(enviou==false){
-    //Checa conexão WiFi
-    if (WiFi.status() != WL_CONNECTED) {conecta_wifi();}
-    
-    //Checa conexão com o broker
-    if(!client.connected()){
-      reconnect();
-    }
-    
-    //Faz o publish do número de passos
-    enviou = client.publish(mqtt_topico_pub,num_passos);
-    delay(10);
-  }
 }
 
-//Reconecta ao broker MQTT
+//Reconecta ao broker MQTT e enviar número de passos utilizando a will message
 void reconnect() {
   // Entra em um loop até que a conexão seja realizada
+  enviar();
   while (!client.connected()) {
-    if (client.connect(mqtt_usuario,mqtt_usuario,mqtt_senha)) {
+    if (client.connect("NodeMCU Bengala",mqtt_usuario,mqtt_senha,mqtt_topico_pub,2,1,num_passos)) {
     } else {
       delay(1);
     }
   }
+  contador=0;
+  enviou=true;
 }
